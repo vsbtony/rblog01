@@ -1,0 +1,130 @@
+x-app: &app
+  build:
+    context: .
+    args:
+      RUBY_VERSION: ${RUBY_VERSION:?RUBY_VERSION not set;edit 'dip.yml'!}
+      DISTRO_NAME: ${DISTRO_NAME:?DISTRO_NAME not set;edit 'dip.yml'!}
+      NODE_MAJOR: ${NODE_MAJOR:?NODE_MAJOR not set;edit 'dip.yml'!}
+      YARN_VERSION: ${YARN_VERSION:?YARN_VERSION not set;edit 'dip.yml'!}
+      APP_NAME: ${APP_NAME:?APP_NAME not set; edit 'dip.yml'!}
+  image: ${PROJECT_NAME}-${RAILS_IMAGE_ENV}:1.0.0
+  environment: &env
+    NODE_ENV: ${NODE_ENV:-development}
+    RAILS_ENV: ${RAILS_ENV:-development}
+    HISTFILE: /usr/local/hist/.bash_history
+    IRB_HISTFILE: /usr/local/hist/.irb_history
+    EDITOR: vim
+  tmpfs:
+    - /tmp
+    - /${APP_NAME}/tmp/pids
+
+x-backend: &backend
+  <<: *app
+  stdin_open: true
+  tty: true
+  volumes:
+    - ..:/${APP_NAME}:cached
+    - bundle:/usr/local/bundle
+    - rails_cache:/${APP_NAME}/tmp/cache
+    - packs:/${APP_NAME}/public/packs
+    - packs-test:/${APP_NAME}/public/packs-test
+    - history:/usr/local/hist
+    - ./docker_bashrc:/root/.bashrc:ro
+    - ./docker_irbrc:/root/.irbrc:ro    
+  environment: &backend_environment
+    <<: *env
+    MALLOC_ARENA_MAX: 2
+    WEB_CONCURRENCY: ${WEB_CONCURRENCY:-1}
+    BOOTSNAP_CACHE_DIR: /usr/local/bundle/_bootsnap
+    XDG_DATA_HOME: /${APP_NAME}/tmp/caches
+
+services:
+  rails:
+    <<: *backend
+    command: bundle exec rails
+
+  rdev:
+    <<: *backend
+    command: bin/dev
+    ports:
+      - '3000:3000'
+
+  web:
+    <<: *backend
+    command: bundle exec rails server -b 0.0.0.0
+    ports:
+      - '3000:3000'
+
+  # Current stable Ruby
+  ruby: &ruby
+    command: bash
+    image: ruby:${RUBY_VERSION}-slim
+    volumes:
+      # That's all the magic!
+      # - ${PWD}:/${PWD}:cached
+      - ${PWD}:/${PWD}
+      - bundle:/usr/local/bundle
+      - history:/usr/local/hist
+      # I also mount different configuration files
+      # for better DX
+      # This mounts the /root/.* files to the host .dockerdev/* files.
+      # Use it to setup the bash / irb etc environments!
+      - ./docker_bashrc:/root/.bashrc:ro
+      - ./docker_irbrc:/root/.irbrc:ro
+        #- ./.pryrc:/root/.pryrc:ro
+    environment:
+      <<: *env
+      LANG: C.UTF-8
+      PROMPT_DIRTRIM: 2
+      PS1: '[\W]\! '
+      # Plays nice with gemfiles/*.gemfile files for CI
+      BUNDLE_GEMFILE: ${BUNDLE_GEMFILE:-Gemfile}
+    # And that's the second part of the spell
+    working_dir: ${PWD}
+    # Specify frequenlty used ports to expose (9292 — Puma, 3000 — Rails).
+    # Use `dip ruby server` to run a container with ports exposed.
+    # Note that we "prefix" the ports with "1", so, 9292 will be available at 19292 on the host machine.
+    ports:
+      - 19292:9292
+      - 13000:3000
+      - 18080:8080
+    tmpfs:
+      - /tmp
+
+  # Current flavor of MongoDB
+  mongo:
+    image: mongo:latest
+    volumes:
+      - mongo:/data/db
+      - history:/usr/local/hist
+    ports:
+      - 27017
+        #- "27017:27017"
+        #healthcheck:
+        #test: pg_isready -U postgres -h 127.0.0.1
+        #interval: 5s
+
+  # Current flavor of Redis
+  redis:
+    image: redis:7-alpine
+    volumes:
+      - redis:/data
+    ports:
+      - 6379
+    healthcheck:
+      test: redis-cli ping
+      interval: 1s
+      timeout: 3s
+      retries: 30
+
+# Volumes to avoid rebuilding dependencies every time you run your projects!
+volumes:
+  bundle:
+  node_modules:
+  history:
+  rails_cache:
+  redis:
+  packs:
+  packs-test:
+  mongo:
+

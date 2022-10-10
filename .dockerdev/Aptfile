@@ -1,0 +1,5 @@
+vim
+libsqlite3-dev
+sqlite3
+chromium-driver
+redis-tools
