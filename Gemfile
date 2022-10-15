@@ -81,3 +81,5 @@ group :test do
   # add this to clean db before each run. Better way to do so?
   gem 'database_cleaner-mongoid'
 end
+
+gem 'devise'
